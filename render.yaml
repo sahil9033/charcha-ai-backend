@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: charcha-backend
+    runtime: node
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: OPENROUTER_API_KEY
+        sync: false
