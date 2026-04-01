@@ -42,31 +42,41 @@ app.get('/debug-openrouter', async (req, res) => {
     return res.json({ error: 'No API key configured' });
   }
   
-  try {
-    const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-      model: 'deepseek/deepseek-chat:free',
-      messages: [{ role: 'user', content: 'Say hello' }],
-      max_tokens: 50
-    }, {
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://chrcha-ai.web.app',
-        'X-Title': 'Charcha AI'
-      },
-      timeout: 15000
-    });
-    
-    res.json({ 
-      success: true, 
-      response: response.data.choices[0].message.content 
-    });
-  } catch (error) {
-    res.json({ 
-      error: error.message,
-      status: error.response?.status,
-      data: error.response?.data
-    });
+  // Try multiple free models
+  const models = [
+    'qwen/qwen2.5-7b-instruct:free',
+    'microsoft/phi-3-mini-128k-instruct:free',
+    'meta-llama/llama-3.1-8b-instruct:free'
+  ];
+  
+  for (const model of models) {
+    try {
+      console.log(`Trying model: ${model}`);
+      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+        model: model,
+        messages: [{ role: 'user', content: 'Say hello in 5 words' }],
+        max_tokens: 20
+      }, {
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'HTTP-Referer': 'https://chrcha-ai.web.app',
+          'X-Title': 'Charcha AI'
+        },
+        timeout: 15000
+      });
+      
+      return res.json({ 
+        success: true, 
+        model: model,
+        response: response.data.choices[0].message.content 
+      });
+    } catch (error) {
+      console.log(`Model ${model} failed:`, error.response?.data?.error?.message || error.message);
+      continue;
+    }
   }
+  
+  res.json({ error: 'All models failed' });
 });
 
 app.get('/', (req, res) => {
@@ -461,27 +471,49 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
             });
         }
 
-        // Call OpenRouter API with optimized settings
+        // Call OpenRouter API - try multiple free models
         console.log("🔄 Calling OpenRouter API...");
         
-        const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-            model: 'meta-llama/llama-3.1-8b-instruct:free',
-            messages: [
+        const models = [
+          'meta-llama/llama-3.1-8b-instruct:free',
+          'qwen/qwen2.5-7b-instruct:free',
+          'microsoft/phi-3-mini-128k-instruct:free'
+        ];
+        
+        let response = null;
+        let lastError = null;
+        
+        for (const model of models) {
+          try {
+            console.log(`Trying model: ${model}`);
+            response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+              model: model,
+              messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: message }
-            ],
-            max_tokens: 200,
-            temperature: 0.7,
-        }, {
-            headers: {
+              ],
+              max_tokens: 200,
+              temperature: 0.7,
+            }, {
+              headers: {
                 'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
                 'HTTP-Referer': 'https://chrcha-ai.web.app',
                 'X-Title': 'Charcha AI'
-            },
-            timeout: 20000
-        });
+              },
+              timeout: 20000
+            });
+            console.log(`✅ Model ${model} worked!`);
+            break;
+          } catch (modelError) {
+            console.log(`Model ${model} failed:`, modelError.response?.data?.error?.message || modelError.message);
+            lastError = modelError;
+            continue;
+          }
+        }
         
-        console.log("✅ OpenRouter API response received");
+        if (!response) {
+          throw lastError || new Error('All models failed');
+        }
 
         let rawReply = response.data.choices[0].message.content || response.data.choices[0].message.reasoning || "I'm here, but I didn't quite catch that. Let's try again?";
         // Strip out deepseek style thinking tags if they exist
