@@ -38,45 +38,50 @@ app.get('/test', (req, res) => {
 
 // Debug endpoint to test OpenRouter directly
 app.get('/debug-openrouter', async (req, res) => {
-  if (!OPENROUTER_API_KEY) {
-    return res.json({ error: 'No API key configured' });
-  }
-  
-  // Try multiple free models
-  const models = [
-    'qwen/qwen2.5-7b-instruct:free',
-    'microsoft/phi-3-mini-128k-instruct:free',
-    'meta-llama/llama-3.1-8b-instruct:free'
-  ];
-  
-  for (const model of models) {
-    try {
-      console.log(`Trying model: ${model}`);
-      const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-        model: model,
-        messages: [{ role: 'user', content: 'Say hello in 5 words' }],
-        max_tokens: 20
-      }, {
-        headers: {
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'HTTP-Referer': 'https://chrcha-ai.web.app',
-          'X-Title': 'Charcha AI'
-        },
-        timeout: 15000
-      });
-      
-      return res.json({ 
-        success: true, 
-        model: model,
-        response: response.data.choices[0].message.content 
-      });
-    } catch (error) {
-      console.log(`Model ${model} failed:`, error.response?.data?.error?.message || error.message);
-      continue;
+    if (!OPENROUTER_API_KEY) {
+        return res.json({ error: 'No API key configured' });
     }
-  }
-  
-  res.json({ error: 'All models failed' });
+    
+    const results = [];
+    const models = [
+        'nousresearch/hermes-3-llama-3.1-405b:free',
+        'meta-llama/llama-3.1-8b-instruct:free',
+        'qwen/qwen2.5-7b-instruct:free'
+    ];
+
+    for (const model of models) {
+        try {
+            console.log(`🔍 Debugging model: ${model}`);
+            const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+                model: model,
+                messages: [{ role: 'user', content: 'Say hello in 5 words' }],
+                max_tokens: 20
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+                    'HTTP-Referer': 'https://chrcha-ai.web.app',
+                    'X-Title': 'Charcha AI'
+                },
+                timeout: 10000
+            });
+            results.push({ model: model, status: 'SUCCESS', reply: response.data.choices[0].message.content });
+        } catch (error) {
+            results.push({ 
+                model: model, 
+                status: 'FAILED', 
+                error: error.message,
+                data: error.response ? error.response.data : null
+            });
+        }
+    }
+
+    res.json({
+        config: {
+            apiKeySet: !!OPENROUTER_API_KEY,
+            apiKeyPrefix: OPENROUTER_API_KEY ? OPENROUTER_API_KEY.substring(0, 20) + '...' : 'NONE'
+        },
+        results: results
+    });
 });
 
 app.get('/', (req, res) => {
