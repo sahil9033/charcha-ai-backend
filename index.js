@@ -465,7 +465,7 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
         console.log("🔄 Calling OpenRouter API...");
         
         const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-            model: 'deepseek/deepseek-chat:free',
+            model: 'meta-llama/llama-3.1-8b-instruct:free',
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: message }
