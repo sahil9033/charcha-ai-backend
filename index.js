@@ -31,8 +31,42 @@ app.get('/test', (req, res) => {
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
-    apiKeyConfigured: !!OPENROUTER_API_KEY 
+    apiKeyConfigured: !!OPENROUTER_API_KEY,
+    apiKeyPrefix: OPENROUTER_API_KEY ? OPENROUTER_API_KEY.substring(0, 20) + '...' : null
   });
+});
+
+// Debug endpoint to test OpenRouter directly
+app.get('/debug-openrouter', async (req, res) => {
+  if (!OPENROUTER_API_KEY) {
+    return res.json({ error: 'No API key configured' });
+  }
+  
+  try {
+    const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
+      model: 'deepseek/deepseek-chat:free',
+      messages: [{ role: 'user', content: 'Say hello' }],
+      max_tokens: 50
+    }, {
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'HTTP-Referer': 'https://chrcha-ai.web.app',
+        'X-Title': 'Charcha AI'
+      },
+      timeout: 15000
+    });
+    
+    res.json({ 
+      success: true, 
+      response: response.data.choices[0].message.content 
+    });
+  } catch (error) {
+    res.json({ 
+      error: error.message,
+      status: error.response?.status,
+      data: error.response?.data
+    });
+  }
 });
 
 app.get('/', (req, res) => {
