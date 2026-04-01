@@ -26,6 +26,15 @@ app.get('/health', (req, res) => {
   res.json({ status: 'Backend running ✅', timestamp: new Date().toISOString() });
 });
 
+// Test endpoint - quick connectivity check
+app.get('/test', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    apiKeyConfigured: !!OPENROUTER_API_KEY 
+  });
+});
+
 app.get('/', (req, res) => {
   res.send('<h1>🚀 Charcha AI Backend is Live!</h1><p>API status: <b>Operational</b></p><p>Endpoint: <code>POST /api/chat</code></p>');
 });
@@ -420,7 +429,7 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
             });
         }
 
-        // Call OpenRouter API
+        // Call OpenRouter API with optimized settings
         const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
             model: 'meta-llama/llama-3.3-70b-instruct:free',
             messages: [
@@ -434,7 +443,8 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
                 'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
                 'HTTP-Referer': 'https://chrcha-ai.web.app',
                 'X-Title': 'Charcha AI'
-            }
+            },
+            timeout: 25000 // 25 second timeout per request
         });
 
         let rawReply = response.data.choices[0].message.content || response.data.choices[0].message.reasoning || "I'm here, but I didn't quite catch that. Let's try again?";
@@ -471,7 +481,19 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
         });
 
     } catch (error) {
-        console.error("OpenRouter API Error:", error?.response?.data || error.message);
+        // Log detailed error information for debugging
+        console.error("Chat API Error Details:");
+        console.error("- Error Code:", error.code);
+        console.error("- Error Message:", error.message);
+        console.error("- Timeout:", error.timeout);
+        console.error("- Status:", error?.response?.status);
+        
+        if (error.message.includes('timeout') || error.code === 'ECONNABORTED') {
+            console.warn("⏱️ Request timeout - likely slow API or network issue");
+        } else if (error.message.includes('401')) {
+            console.error("❌ Invalid API key!");
+        }
+        
         console.warn("Falling back to enriched response system...");
         
         // If API fails, use enriched fallback responses instead of error
