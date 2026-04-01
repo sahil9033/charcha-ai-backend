@@ -475,6 +475,7 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
         console.log("🔄 Calling OpenRouter API...");
         
         const models = [
+          'qwen/qwen3.6-plus-preview:free',
           'meta-llama/llama-3.1-8b-instruct:free',
           'qwen/qwen2.5-7b-instruct:free',
           'microsoft/phi-3-mini-128k-instruct:free'
