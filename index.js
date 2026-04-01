@@ -418,9 +418,7 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
                 reply = neutralResponses[mode][Math.floor(Math.random() * neutralResponses[mode].length)];
             }
 
-            // Artificial delay for realness
-            await new Promise(r => setTimeout(r, 1500));
-
+            // Quick fallback response (no artificial delay)
             return res.json({
                 reply,
                 emotion,
@@ -444,7 +442,7 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
                 'HTTP-Referer': 'https://chrcha-ai.web.app',
                 'X-Title': 'Charcha AI'
             },
-            timeout: 25000 // 25 second timeout per request
+            timeout: 15000 // 15 second timeout - faster for free tier
         });
 
         let rawReply = response.data.choices[0].message.content || response.data.choices[0].message.reasoning || "I'm here, but I didn't quite catch that. Let's try again?";
