@@ -428,13 +428,15 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
         }
 
         // Call OpenRouter API with optimized settings
+        console.log("🔄 Calling OpenRouter API...");
+        
         const response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-            model: 'meta-llama/llama-3.3-70b-instruct:free',
+            model: 'deepseek/deepseek-chat:free',
             messages: [
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: message }
             ],
-            max_tokens: 300,
+            max_tokens: 200,
             temperature: 0.7,
         }, {
             headers: {
@@ -442,8 +444,10 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
                 'HTTP-Referer': 'https://chrcha-ai.web.app',
                 'X-Title': 'Charcha AI'
             },
-            timeout: 15000 // 15 second timeout - faster for free tier
+            timeout: 20000
         });
+        
+        console.log("✅ OpenRouter API response received");
 
         let rawReply = response.data.choices[0].message.content || response.data.choices[0].message.reasoning || "I'm here, but I didn't quite catch that. Let's try again?";
         // Strip out deepseek style thinking tags if they exist
@@ -483,13 +487,15 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
         console.error("Chat API Error Details:");
         console.error("- Error Code:", error.code);
         console.error("- Error Message:", error.message);
-        console.error("- Timeout:", error.timeout);
-        console.error("- Status:", error?.response?.status);
+        console.error("- Response Data:", error.response?.data);
+        console.error("- Response Status:", error.response?.status);
         
         if (error.message.includes('timeout') || error.code === 'ECONNABORTED') {
             console.warn("⏱️ Request timeout - likely slow API or network issue");
-        } else if (error.message.includes('401')) {
-            console.error("❌ Invalid API key!");
+        } else if (error.response?.status === 401) {
+            console.error("❌ Invalid API key! Check your OPENROUTER_API_KEY");
+        } else if (error.response?.status === 429) {
+            console.error("⚠️ Rate limit exceeded - too many requests");
         }
         
         console.warn("Falling back to enriched response system...");
