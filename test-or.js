@@ -4,7 +4,7 @@ axios.post('https://openrouter.ai/api/v1/chat/completions', {
   messages: [{ role: 'user', content: 'hello' }]
 }, {
   headers: {
-    'Authorization': 'Bearer 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',
+    'Authorization': 'Bearer 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',
     'Content-Type': 'application/json'
   }
 }).then(res => console.log(res.data)).catch(err => console.error(err.response?.status, err.response?.data));
