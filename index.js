@@ -7,9 +7,21 @@ dotenv.config();
 
 const app = express();
 
-// Enhanced CORS configuration
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://chrcha-ai.web.app',
+  'https://chrcha-ai.firebaseapp.com'
+];
+
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173', 'https://chrcha-ai.web.app'],
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Origin ${origin} is not allowed by CORS`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -18,12 +30,60 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
+const OPENROUTER_SITE_URL = process.env.OPENROUTER_SITE_URL || 'https://chrcha-ai.web.app';
+
+function getOpenRouterModels() {
+  const fallbackModels = (process.env.OPENROUTER_FALLBACK_MODELS || '')
+    .split(',')
+    .map((model) => model.trim())
+    .filter(Boolean);
+
+  return [OPENROUTER_MODEL, ...fallbackModels];
+}
+
+async function createOpenRouterCompletion(messages, maxTokens = 200) {
+  const models = getOpenRouterModels();
+  let lastError = null;
+
+  for (const model of models) {
+    try {
+      console.log(`Trying model: ${model}`);
+      const response = await axios.post(
+        'https://openrouter.ai/api/v1/chat/completions',
+        {
+          model,
+          max_tokens: maxTokens,
+          messages
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': OPENROUTER_SITE_URL,
+            'X-Title': 'Charcha AI'
+          },
+          timeout: 20000
+        }
+      );
+
+      console.log(`Model ${model} succeeded`);
+      return response;
+    } catch (error) {
+      const providerError = error.response?.data?.error?.message || error.message;
+      console.warn(`Model ${model} failed: ${providerError}`);
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('All OpenRouter model attempts failed');
+}
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'Backend running ✅', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok' });
 });
 
 // Test endpoint - quick connectivity check
@@ -32,7 +92,7 @@ app.get('/test', (req, res) => {
     status: 'OK', 
     timestamp: new Date().toISOString(),
     apiKeyConfigured: !!OPENROUTER_API_KEY,
-    apiKeyPrefix: OPENROUTER_API_KEY ? OPENROUTER_API_KEY.substring(0, 20) + '...' : null
+    configuredModel: OPENROUTER_MODEL
   });
 });
 
@@ -43,11 +103,7 @@ app.get('/debug-openrouter', async (req, res) => {
     }
     
     const results = [];
-    const models = [
-        'nousresearch/hermes-3-llama-3.1-405b:free',
-        'meta-llama/llama-3.1-8b-instruct:free',
-        'qwen/qwen2.5-7b-instruct:free'
-    ];
+    const models = getOpenRouterModels();
 
     for (const model of models) {
         try {
@@ -59,7 +115,8 @@ app.get('/debug-openrouter', async (req, res) => {
             }, {
                 headers: {
                     'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                    'HTTP-Referer': 'https://chrcha-ai.web.app',
+                    'Content-Type': 'application/json',
+                    'HTTP-Referer': OPENROUTER_SITE_URL,
                     'X-Title': 'Charcha AI'
                 },
                 timeout: 10000
@@ -78,7 +135,8 @@ app.get('/debug-openrouter', async (req, res) => {
     res.json({
         config: {
             apiKeySet: !!OPENROUTER_API_KEY,
-            apiKeyPrefix: OPENROUTER_API_KEY ? OPENROUTER_API_KEY.substring(0, 20) + '...' : 'NONE'
+            configuredModel: OPENROUTER_MODEL,
+            configuredFallbackModels: getOpenRouterModels().slice(1)
         },
         results: results
     });
@@ -476,50 +534,13 @@ Remember: Someone might open this app at 2 AM with no one else there. Be that pr
             });
         }
 
-        // Call OpenRouter API - try multiple free models
+        // Call OpenRouter API
         console.log("🔄 Calling OpenRouter API...");
-        
-        const models = [
-          'nousresearch/hermes-3-llama-3.1-405b:free',
-          'meta-llama/llama-3.1-8b-instruct:free',
-          'qwen/qwen2.5-7b-instruct:free',
-          'microsoft/phi-3-mini-128k-instruct:free'
-        ];
-        
-        let response = null;
-        let lastError = null;
-        
-        for (const model of models) {
-          try {
-            console.log(`Trying model: ${model}`);
-            response = await axios.post('https://openrouter.ai/api/v1/chat/completions', {
-              model: model,
-              messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: message }
-              ],
-              max_tokens: 200,
-              temperature: 0.7,
-            }, {
-              headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'HTTP-Referer': 'https://chrcha-ai.web.app',
-                'X-Title': 'Charcha AI'
-              },
-              timeout: 20000
-            });
-            console.log(`✅ Model ${model} worked!`);
-            break;
-          } catch (modelError) {
-            console.log(`Model ${model} failed:`, modelError.response?.data?.error?.message || modelError.message);
-            lastError = modelError;
-            continue;
-          }
-        }
-        
-        if (!response) {
-          throw lastError || new Error('All models failed');
-        }
+
+        const response = await createOpenRouterCompletion([
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: message }
+        ]);
 
         let rawReply = response.data.choices[0].message.content || response.data.choices[0].message.reasoning || "I'm here, but I didn't quite catch that. Let's try again?";
         // Strip out deepseek style thinking tags if they exist
