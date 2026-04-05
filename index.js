@@ -1,16 +1,17 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import axios from 'axios';
+import { OpenRouter } from '@openrouter/sdk';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://chrcha-ai.web.app';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const PRIMARY_MODEL = 'gemini-1.5-flash';
-const FALLBACK_MODEL = 'gemini-2.5-flash';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const CHAT_MODEL =
+  process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
+
 const dailyCount = {};
 
 const crisisKeywords = [
@@ -33,26 +34,55 @@ const emotionKeywords = {
 const allowedOrigins = Array.from(new Set([
   'http://localhost:3000',
   'http://localhost:5173',
+  'http://localhost:5174',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+  'http://127.0.0.1:3000',
   FRONTEND_URL,
   FRONTEND_URL.includes('.web.app')
     ? FRONTEND_URL.replace('.web.app', '.firebaseapp.com')
     : FRONTEND_URL
 ]));
 
+function isLocalDevOrigin(origin) {
+  if (!origin) return false;
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === 'localhost' || hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) {
       return callback(null, true);
     }
 
     return callback(new Error(`Origin ${origin} is not allowed by CORS`));
   },
-  methods: ['GET', 'POST'],
+  methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+/** @type {OpenRouter | null} */
+let openRouterClient = null;
+
+function getOpenRouter() {
+  if (!OPENROUTER_API_KEY) return null;
+  if (!openRouterClient) {
+    openRouterClient = new OpenRouter({
+      apiKey: OPENROUTER_API_KEY,
+      httpReferer: FRONTEND_URL,
+      appTitle: 'Charcha AI'
+    });
+  }
+  return openRouterClient;
+}
 
 function detectEmotion(text = '') {
   const lower = text.toLowerCase();
@@ -105,7 +135,7 @@ If crisis: show "Please call iCall: 9152987821"`
 
   const template = prompts[mode] || prompts.friend;
   const values = {
-    name: memory?.name || 'Sahil',
+    name: memory?.name || 'Friend',
     lastProblem: memory?.lastProblem || 'not shared yet',
     emotion
   };
@@ -116,40 +146,20 @@ If crisis: show "Please call iCall: 9152987821"`
     .replaceAll('{emotion}', values.emotion);
 }
 
-async function requestGemini(model, systemPrompt, userMessage) {
-  const response = await axios.post(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      systemInstruction: {
-        parts: [{ text: systemPrompt }]
-      },
-      generationConfig: {
-        temperature: 0.85,
-        maxOutputTokens: 200
-      },
-      contents: [
-        {
-          parts: [{ text: userMessage }]
-        }
-      ]
-    }
-    ,
-    {
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      timeout: 20000
-    }
-  );
-
-  return response.data;
-}
-
-function extractGeminiReply(data) {
-  return data?.candidates?.[0]?.content?.parts
-    ?.map((part) => part?.text || '')
-    .join('')
-    .trim();
+function extractAssistantText(result) {
+  const content = result?.choices?.[0]?.message?.content;
+  if (typeof content === 'string') return content.trim();
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part.text === 'string') return part.text;
+        return '';
+      })
+      .join('')
+      .trim();
+  }
+  return '';
 }
 
 function fallbackResponse() {
@@ -161,6 +171,10 @@ function fallbackResponse() {
 }
 
 app.use('/api/chat', (req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+
   const userId = req.body?.userId || req.ip;
   const today = new Date().toDateString();
   const key = `${userId}_${today}`;
@@ -187,51 +201,56 @@ app.get('/test', (req, res) => {
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
-    apiKeyConfigured: !!GEMINI_API_KEY,
-    frontendUrl: FRONTEND_URL,
-    primaryModel: PRIMARY_MODEL,
-    fallbackModel: FALLBACK_MODEL
+    apiKeyConfigured: !!OPENROUTER_API_KEY,
+    provider: 'openrouter',
+    model: CHAT_MODEL,
+    frontendUrl: FRONTEND_URL
   });
 });
 
-app.get('/debug-gemini', async (req, res) => {
-  if (!GEMINI_API_KEY) {
-    return res.json({ error: 'No API key configured' });
+app.get('/debug-openrouter', async (req, res) => {
+  const client = getOpenRouter();
+  if (!client) {
+    return res.json({ error: 'OPENROUTER_API_KEY is not set' });
   }
 
-  const prompt = buildSystemPrompt(
-    'friend',
-    { name: 'Sahil', lastProblem: 'exam stress' },
-    'neutral'
-  );
+  try {
+    const systemPrompt = buildSystemPrompt(
+      'friend',
+      { name: 'Test', lastProblem: 'exam stress' },
+      'neutral'
+    );
 
-  const results = [];
+    const result = await client.chat.send({
+      httpReferer: FRONTEND_URL,
+      appTitle: 'Charcha AI',
+      chatRequest: {
+        model: CHAT_MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: 'Say hello in one short sentence.' }
+        ],
+        stream: false,
+        temperature: 0.7,
+        maxTokens: 120
+      }
+    });
 
-  for (const model of [PRIMARY_MODEL, FALLBACK_MODEL]) {
-    try {
-      const data = await requestGemini(model, prompt, 'Hello');
-      results.push({
-        model,
-        status: 'SUCCESS',
-        reply: extractGeminiReply(data) || null
-      });
-    } catch (error) {
-      results.push({
-        model,
-        status: 'FAILED',
-        error: error.message,
-        data: error.response?.data || null
-      });
-    }
+    const reply = extractAssistantText(result);
+
+    res.json({
+      model: CHAT_MODEL,
+      status: reply ? 'SUCCESS' : 'EMPTY',
+      reply: reply || null
+    });
+  } catch (error) {
+    res.json({
+      model: CHAT_MODEL,
+      status: 'FAILED',
+      error: error.message,
+      details: error.cause || error.response?.data || null
+    });
   }
-
-  res.json({
-    config: {
-      apiKeySet: !!GEMINI_API_KEY,
-      frontendUrl: FRONTEND_URL
-    },
-    results
-  });
 });
 
 function withHelpline(reply, showHelpline) {
@@ -242,32 +261,41 @@ function withHelpline(reply, showHelpline) {
   return `${reply}\n\nPlease call iCall: 9152987821`;
 }
 
-async function generateChatReply(systemPrompt, message) {
-  try {
-    const data = await requestGemini(PRIMARY_MODEL, systemPrompt, message);
-    const reply = extractGeminiReply(data);
-
-    if (!reply) {
-      throw new Error('Primary Gemini model returned an empty response');
-    }
-
-    return reply;
-  } catch (primaryError) {
-    console.error('Primary Gemini request failed:', primaryError.response?.data || primaryError.message);
-
-    const data = await requestGemini(FALLBACK_MODEL, systemPrompt, message);
-    const reply = extractGeminiReply(data);
-
-    if (!reply) {
-      throw new Error('Fallback Gemini model returned an empty response');
-    }
-
-    return reply;
+async function generateChatReply(systemPrompt, userMessage) {
+  const client = getOpenRouter();
+  if (!client) {
+    throw new Error('OpenRouter client not configured');
   }
+
+  const result = await client.chat.send({
+    httpReferer: FRONTEND_URL,
+    appTitle: 'Charcha AI',
+    chatRequest: {
+      model: CHAT_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage }
+      ],
+      stream: false,
+      temperature: 0.85,
+      maxTokens: 200
+    }
+  });
+
+  const reply = extractAssistantText(result);
+  if (!reply) {
+    throw new Error('Model returned an empty response');
+  }
+
+  return reply;
 }
 
 app.get('/', (req, res) => {
-  res.send('<h1>Charcha AI Backend is Live!</h1><p>Endpoint: <code>POST /api/chat</code></p>');
+  res.send(
+    '<h1>Charcha AI Backend is Live!</h1><p>LLM: OpenRouter (<code>' +
+      CHAT_MODEL +
+      '</code>)</p><p>Endpoint: <code>POST /api/chat</code></p>'
+  );
 });
 
 app.post('/api/chat', async (req, res) => {
@@ -286,7 +314,7 @@ app.post('/api/chat', async (req, res) => {
   const systemPrompt = buildSystemPrompt(safeMode, memory, detectedEmotion);
   const showHelpline = crisisKeywords.some((word) => message.toLowerCase().includes(word));
 
-  if (!GEMINI_API_KEY) {
+  if (!OPENROUTER_API_KEY) {
     return res.json(fallbackResponse());
   }
 
@@ -299,11 +327,17 @@ app.post('/api/chat', async (req, res) => {
       showHelpline
     });
   } catch (error) {
-    console.error('Gemini request failed:', error.response?.data || error.message);
+    console.error('OpenRouter request failed:', error.message, error.cause || '');
     return res.json(fallbackResponse());
   }
 });
 
 app.listen(PORT, () => {
   console.log(`Charcha AI backend running on port ${PORT}`);
+  console.log(`OpenRouter model: ${CHAT_MODEL}`);
+  if (!OPENROUTER_API_KEY) {
+    console.warn(
+      '[charcha] OPENROUTER_API_KEY is not set — /api/chat will return the fallback message until you add it (backend/.env or Render → Environment).'
+    );
+  }
 });
