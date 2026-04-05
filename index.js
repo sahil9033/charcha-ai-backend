@@ -8,9 +8,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://chrcha-ai.web.app';
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const PRIMARY_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
-const BACKUP_MODEL = 'mistralai/mistral-small-3.1-24b-instruct:free';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const PRIMARY_MODEL = 'gemini-1.5-flash';
 const dailyCount = {};
 
 const crisisKeywords = [
@@ -116,30 +115,40 @@ If crisis: show "Please call iCall: 9152987821"`
     .replaceAll('{emotion}', values.emotion);
 }
 
-async function requestOpenRouter(model, systemPrompt, userMessage) {
+async function requestGemini(model, systemPrompt, userMessage) {
   const response = await axios.post(
-    'https://openrouter.ai/api/v1/chat/completions',
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
     {
-      model,
-      max_tokens: 200,
-      temperature: 0.85,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage }
+      systemInstruction: {
+        parts: [{ text: systemPrompt }]
+      },
+      generationConfig: {
+        temperature: 0.85,
+        maxOutputTokens: 200
+      },
+      contents: [
+        {
+          parts: [{ text: userMessage }]
+        }
       ]
-    },
+    }
+    ,
     {
       headers: {
-        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': FRONTEND_URL,
-        'X-Title': 'Charcha AI'
+        'Content-Type': 'application/json'
       },
       timeout: 20000
     }
   );
 
   return response.data;
+}
+
+function extractGeminiReply(data) {
+  return data?.candidates?.[0]?.content?.parts
+    ?.map((part) => part?.text || '')
+    .join('')
+    .trim();
 }
 
 function fallbackResponse() {
@@ -177,15 +186,14 @@ app.get('/test', (req, res) => {
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
-    apiKeyConfigured: !!OPENROUTER_API_KEY,
+    apiKeyConfigured: !!GEMINI_API_KEY,
     frontendUrl: FRONTEND_URL,
-    primaryModel: PRIMARY_MODEL,
-    backupModel: BACKUP_MODEL
+    primaryModel: PRIMARY_MODEL
   });
 });
 
-app.get('/debug-openrouter', async (req, res) => {
-  if (!OPENROUTER_API_KEY) {
+app.get('/debug-gemini', async (req, res) => {
+  if (!GEMINI_API_KEY) {
     return res.json({ error: 'No API key configured' });
   }
 
@@ -197,27 +205,25 @@ app.get('/debug-openrouter', async (req, res) => {
 
   const results = [];
 
-  for (const model of [PRIMARY_MODEL, BACKUP_MODEL]) {
-    try {
-      const data = await requestOpenRouter(model, prompt, 'Hello');
-      results.push({
-        model,
-        status: 'SUCCESS',
-        reply: data.choices?.[0]?.message?.content || null
-      });
-    } catch (error) {
-      results.push({
-        model,
-        status: 'FAILED',
-        error: error.message,
-        data: error.response?.data || null
-      });
-    }
+  try {
+    const data = await requestGemini(PRIMARY_MODEL, prompt, 'Hello');
+    results.push({
+      model: PRIMARY_MODEL,
+      status: 'SUCCESS',
+      reply: extractGeminiReply(data) || null
+    });
+  } catch (error) {
+    results.push({
+      model: PRIMARY_MODEL,
+      status: 'FAILED',
+      error: error.message,
+      data: error.response?.data || null
+    });
   }
 
   res.json({
     config: {
-      apiKeySet: !!OPENROUTER_API_KEY,
+      apiKeySet: !!GEMINI_API_KEY,
       frontendUrl: FRONTEND_URL
     },
     results
@@ -244,16 +250,16 @@ app.post('/api/chat', async (req, res) => {
   const systemPrompt = buildSystemPrompt(safeMode, memory, detectedEmotion);
   const showHelpline = crisisKeywords.some((word) => message.toLowerCase().includes(word));
 
-  if (!OPENROUTER_API_KEY) {
+  if (!GEMINI_API_KEY) {
     return res.json(fallbackResponse());
   }
 
   try {
-    const data = await requestOpenRouter(PRIMARY_MODEL, systemPrompt, message);
-    let reply = data.choices?.[0]?.message?.content;
+    const data = await requestGemini(PRIMARY_MODEL, systemPrompt, message);
+    let reply = extractGeminiReply(data);
 
     if (!reply) {
-      throw new Error('Primary model returned an empty response');
+      throw new Error('Gemini returned an empty response');
     }
 
     reply = reply.trim();
@@ -267,32 +273,9 @@ app.post('/api/chat', async (req, res) => {
       emotion: detectedEmotion,
       showHelpline
     });
-  } catch (primaryError) {
-    console.error('Primary OpenRouter request failed:', primaryError.response?.data || primaryError.message);
-
-    try {
-      const data = await requestOpenRouter(BACKUP_MODEL, systemPrompt, message);
-      let reply = data.choices?.[0]?.message?.content;
-
-      if (!reply) {
-        throw new Error('Backup model returned an empty response');
-      }
-
-      reply = reply.trim();
-
-      if (showHelpline && !reply.includes('iCall')) {
-        reply = `${reply}\n\nPlease call iCall: 9152987821`;
-      }
-
-      return res.json({
-        reply,
-        emotion: detectedEmotion,
-        showHelpline
-      });
-    } catch (backupError) {
-      console.error('Backup OpenRouter request failed:', backupError.response?.data || backupError.message);
-      return res.json(fallbackResponse());
-    }
+  } catch (error) {
+    console.error('Gemini request failed:', error.response?.data || error.message);
+    return res.json(fallbackResponse());
   }
 });
 

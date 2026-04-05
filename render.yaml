@@ -5,7 +5,7 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
-      - key: OPENROUTER_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
       - key: FRONTEND_URL
         value: https://chrcha-ai.web.app

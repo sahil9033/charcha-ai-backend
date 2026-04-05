@@ -83,7 +83,7 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "   - Build: npm install" -ForegroundColor Yellow
     Write-Host "   - Start: npm start" -ForegroundColor Yellow
     Write-Host "5. Add env var:" -ForegroundColor Yellow
-    Write-Host "   - OPENROUTER_API_KEY = your_api_key" -ForegroundColor Yellow
+    Write-Host "   - GEMINI_API_KEY = your_api_key" -ForegroundColor Yellow
     Write-Host "6. Click 'Create Web Service'" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "✓ Backend deployment complete!" -ForegroundColor Green
