@@ -10,6 +10,7 @@ const PORT = process.env.PORT || 3001;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://chrcha-ai.web.app';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const PRIMARY_MODEL = 'gemini-1.5-flash';
+const FALLBACK_MODEL = 'gemini-2.5-flash';
 const dailyCount = {};
 
 const crisisKeywords = [
@@ -188,7 +189,8 @@ app.get('/test', (req, res) => {
     timestamp: new Date().toISOString(),
     apiKeyConfigured: !!GEMINI_API_KEY,
     frontendUrl: FRONTEND_URL,
-    primaryModel: PRIMARY_MODEL
+    primaryModel: PRIMARY_MODEL,
+    fallbackModel: FALLBACK_MODEL
   });
 });
 
@@ -205,20 +207,22 @@ app.get('/debug-gemini', async (req, res) => {
 
   const results = [];
 
-  try {
-    const data = await requestGemini(PRIMARY_MODEL, prompt, 'Hello');
-    results.push({
-      model: PRIMARY_MODEL,
-      status: 'SUCCESS',
-      reply: extractGeminiReply(data) || null
-    });
-  } catch (error) {
-    results.push({
-      model: PRIMARY_MODEL,
-      status: 'FAILED',
-      error: error.message,
-      data: error.response?.data || null
-    });
+  for (const model of [PRIMARY_MODEL, FALLBACK_MODEL]) {
+    try {
+      const data = await requestGemini(model, prompt, 'Hello');
+      results.push({
+        model,
+        status: 'SUCCESS',
+        reply: extractGeminiReply(data) || null
+      });
+    } catch (error) {
+      results.push({
+        model,
+        status: 'FAILED',
+        error: error.message,
+        data: error.response?.data || null
+      });
+    }
   }
 
   res.json({
@@ -229,6 +233,38 @@ app.get('/debug-gemini', async (req, res) => {
     results
   });
 });
+
+function withHelpline(reply, showHelpline) {
+  if (!showHelpline || reply.includes('iCall')) {
+    return reply;
+  }
+
+  return `${reply}\n\nPlease call iCall: 9152987821`;
+}
+
+async function generateChatReply(systemPrompt, message) {
+  try {
+    const data = await requestGemini(PRIMARY_MODEL, systemPrompt, message);
+    const reply = extractGeminiReply(data);
+
+    if (!reply) {
+      throw new Error('Primary Gemini model returned an empty response');
+    }
+
+    return reply;
+  } catch (primaryError) {
+    console.error('Primary Gemini request failed:', primaryError.response?.data || primaryError.message);
+
+    const data = await requestGemini(FALLBACK_MODEL, systemPrompt, message);
+    const reply = extractGeminiReply(data);
+
+    if (!reply) {
+      throw new Error('Fallback Gemini model returned an empty response');
+    }
+
+    return reply;
+  }
+}
 
 app.get('/', (req, res) => {
   res.send('<h1>Charcha AI Backend is Live!</h1><p>Endpoint: <code>POST /api/chat</code></p>');
@@ -255,18 +291,7 @@ app.post('/api/chat', async (req, res) => {
   }
 
   try {
-    const data = await requestGemini(PRIMARY_MODEL, systemPrompt, message);
-    let reply = extractGeminiReply(data);
-
-    if (!reply) {
-      throw new Error('Gemini returned an empty response');
-    }
-
-    reply = reply.trim();
-
-    if (showHelpline && !reply.includes('iCall')) {
-      reply = `${reply}\n\nPlease call iCall: 9152987821`;
-    }
+    const reply = withHelpline((await generateChatReply(systemPrompt, message)).trim(), showHelpline);
 
     return res.json({
       reply,
