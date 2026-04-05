@@ -7,7 +7,5 @@ services:
     envVars:
       - key: OPENROUTER_API_KEY
         sync: false
-      - key: OPENROUTER_MODEL
-        value: meta-llama/llama-3.3-70b-instruct:free
-      - key: OPENROUTER_SITE_URL
+      - key: FRONTEND_URL
         value: https://chrcha-ai.web.app
