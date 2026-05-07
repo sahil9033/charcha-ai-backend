@@ -57,7 +57,7 @@ const openRouterCall = async (systemPrompt, userPrompt) => {
   const headers = {
     Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
     'Content-Type': 'application/json',
-    'HTTP-Referer': 'http://localhost:3001',
+    'HTTP-Referer': 'https://charcha-ai-backend.onrender.com',
     'X-Title': 'NEETI'
   };
 
