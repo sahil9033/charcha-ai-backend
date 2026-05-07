@@ -3,12 +3,17 @@ import admin from 'firebase-admin';
 
 let serviceAccount = null;
 
-if (process.env.FIREBASE_SERVICE_ACCOUNT && process.env.FIREBASE_SERVICE_ACCOUNT.trim().startsWith('{')) {
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT.trim());
+    const jsonStr = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+    // Handle cases where the JSON might be wrapped in quotes
+    const cleanedJson = jsonStr.startsWith('"') && jsonStr.endsWith('"') 
+      ? jsonStr.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, '\n')
+      : jsonStr;
+    serviceAccount = JSON.parse(cleanedJson);
   } catch (err) {
-    console.error('[FIREBASE] JSON Parse Error:', err.message);
-    throw new Error('FIREBASE_SERVICE_ACCOUNT contains invalid JSON. Ensure you pasted only the { ... } content.');
+    console.error('[FIREBASE] Environment variable parse error:', err.message);
+    throw new Error('FIREBASE_SERVICE_ACCOUNT contains invalid JSON. Ensure you pasted the entire { ... } block correctly into Render.');
   }
 } else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
   try {
