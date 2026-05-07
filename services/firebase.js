@@ -5,28 +5,28 @@ let serviceAccount = null;
 
 const parseServiceAccount = (content, source) => {
   try {
-    // 1. Clean the string
-    let cleaned = content.trim();
+    // 1. Clean the string - remove whitespace and potential backticks from copy-paste
+    let cleaned = content.trim().replace(/^`+|`+$/g, '');
     
     // 2. Remove any accidental trailing comments like //right
-    cleaned = cleaned.replace(/\/\/.*$/, '');
+    cleaned = cleaned.replace(/\/\/.*$/, '').trim();
     
-    // 3. Remove potential wrapping quotes
+    // 3. Remove potential wrapping double quotes
     if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
       cleaned = cleaned.slice(1, -1);
     }
 
-    // 4. Fix common escape character issues (\n vs \\n)
-    // If the string contains literal newlines, it's definitely invalid JSON, 
-    // but we can try to fix the most common one in private keys.
-    cleaned = cleaned.replace(/\\n/g, '\n'); 
-    // Wait, JSON.parse needs literal \n to be represented as the string "\n"
-    // So actually we should ensure they are escaped for the parser.
-    // Let's stick to standard JSON.parse first but with extreme cleaning.
+    // 4. Handle double-escaped newlines common in env vars
+    // We want to turn literal \n (two characters) into a real newline character
+    // only if it's inside the private_key string. JSON.parse usually handles this
+    // if the input is a valid JSON string.
     
-    return JSON.parse(content.trim());
+    console.log(`[FIREBASE] Attempting to parse service account from ${source}...`);
+    return JSON.parse(cleaned);
   } catch (err) {
     console.error(`[FIREBASE] Parse error from ${source}:`, err.message);
+    // Log a small snippet to help debug without exposing the full key
+    console.error(`[FIREBASE] Snippet: ${content.substring(0, 20)}...`);
     throw err;
   }
 };
