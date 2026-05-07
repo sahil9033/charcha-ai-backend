@@ -24,6 +24,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
+    databaseURL: process.env.FIREBASE_DATABASE_URL || "https://charcha-25e02-default-rtdb.asia-southeast1.firebasedatabase.app"
   });
 }
 
