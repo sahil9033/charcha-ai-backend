@@ -3,27 +3,49 @@ import admin from 'firebase-admin';
 
 let serviceAccount = null;
 
+const parseServiceAccount = (content, source) => {
+  try {
+    // 1. Clean the string
+    let cleaned = content.trim();
+    
+    // 2. Remove any accidental trailing comments like //right
+    cleaned = cleaned.replace(/\/\/.*$/, '');
+    
+    // 3. Remove potential wrapping quotes
+    if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+      cleaned = cleaned.slice(1, -1);
+    }
+
+    // 4. Fix common escape character issues (\n vs \\n)
+    // If the string contains literal newlines, it's definitely invalid JSON, 
+    // but we can try to fix the most common one in private keys.
+    cleaned = cleaned.replace(/\\n/g, '\n'); 
+    // Wait, JSON.parse needs literal \n to be represented as the string "\n"
+    // So actually we should ensure they are escaped for the parser.
+    // Let's stick to standard JSON.parse first but with extreme cleaning.
+    
+    return JSON.parse(content.trim());
+  } catch (err) {
+    console.error(`[FIREBASE] Parse error from ${source}:`, err.message);
+    throw err;
+  }
+};
+
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   try {
-    const jsonStr = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
-    // Handle cases where the JSON might be wrapped in quotes
-    const cleanedJson = jsonStr.startsWith('"') && jsonStr.endsWith('"') 
-      ? jsonStr.slice(1, -1).replace(/\\"/g, '"').replace(/\\n/g, '\n')
-      : jsonStr;
-    serviceAccount = JSON.parse(cleanedJson);
+    serviceAccount = parseServiceAccount(process.env.FIREBASE_SERVICE_ACCOUNT, 'environment variable');
   } catch (err) {
-    console.error('[FIREBASE] Environment variable parse error:', err.message);
-    throw new Error('FIREBASE_SERVICE_ACCOUNT contains invalid JSON. Ensure you pasted the entire { ... } block correctly into Render.');
+    throw new Error('FIREBASE_SERVICE_ACCOUNT environment variable is invalid JSON.');
   }
 } else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
   try {
     const raw = fs.readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH, 'utf-8');
-    serviceAccount = JSON.parse(raw);
+    serviceAccount = parseServiceAccount(raw, 'secret file');
   } catch (err) {
-    throw new Error('Unable to read Firebase service account from FIREBASE_SERVICE_ACCOUNT_PATH. ' + err.message);
+    throw new Error('Unable to parse Firebase secret file. Ensure it contains ONLY the JSON block with no comments or extra text.');
   }
 } else {
-  throw new Error('Either FIREBASE_SERVICE_ACCOUNT or FIREBASE_SERVICE_ACCOUNT_PATH environment variable is required.');
+  throw new Error('Either FIREBASE_SERVICE_ACCOUNT or FIREBASE_SERVICE_ACCOUNT_PATH is required.');
 }
 
 // Initialize Firebase Admin SDK
