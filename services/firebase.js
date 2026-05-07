@@ -3,11 +3,12 @@ import admin from 'firebase-admin';
 
 let serviceAccount = null;
 
-if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+if (process.env.FIREBASE_SERVICE_ACCOUNT && process.env.FIREBASE_SERVICE_ACCOUNT.trim().startsWith('{')) {
   try {
-    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT.trim());
   } catch (err) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT must contain valid JSON.');
+    console.error('[FIREBASE] JSON Parse Error:', err.message);
+    throw new Error('FIREBASE_SERVICE_ACCOUNT contains invalid JSON. Ensure you pasted only the { ... } content.');
   }
 } else if (process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
   try {
